@@ -128,15 +128,10 @@ osSemaphoreId_t IRQSemHandle;
 const osSemaphoreAttr_t IRQSem_attributes = {
   .name = "IRQSem"
 };
-/* Definitions for DisplaySem */
-osSemaphoreId_t DisplaySemHandle;
-const osSemaphoreAttr_t DisplaySem_attributes = {
-  .name = "DisplaySem"
-};
-/* Definitions for SendToComSem */
-osSemaphoreId_t SendToComSemHandle;
-const osSemaphoreAttr_t SendToComSem_attributes = {
-  .name = "SendToComSem"
+/* Definitions for DataSem */
+osSemaphoreId_t DataSemHandle;
+const osSemaphoreAttr_t DataSem_attributes = {
+  .name = "DataSem"
 };
 /* USER CODE BEGIN PV */
 
@@ -156,7 +151,6 @@ uint8_t rxDataIndex = 0;
 DisplayMode_t DisplayMode = DISPLAY_TEMP_HUMI;
 
 osStatus_t stat;
-uint32_t count = 0;
 
 //TaskIndex_t TaskIndex;
 
@@ -255,6 +249,9 @@ int main(void)
   RGB_Init(&rgb, &htim2, TIM_CHANNEL_1, TIM_CHANNEL_2, TIM_CHANNEL_3);
   LCD_Init(&lcd, &hi2c2, LDC_DEFAULT_ADDRESS, 20, 4);
 
+  LCD_SetCursor(&lcd, 0, 0);
+  LCD_WriteString(&lcd, "Hello");
+
   HAL_UART_Receive_IT(&huart1, (uint8_t*)&rxData[rxDataIndex],  1);
 
   /* USER CODE END 2 */
@@ -270,11 +267,8 @@ int main(void)
   /* creation of IRQSem */
   IRQSemHandle = osSemaphoreNew(1, 0, &IRQSem_attributes);
 
-  /* creation of DisplaySem */
-  DisplaySemHandle = osSemaphoreNew(1, 0, &DisplaySem_attributes);
-
-  /* creation of SendToComSem */
-  SendToComSemHandle = osSemaphoreNew(1, 0, &SendToComSem_attributes);
+  /* creation of DataSem */
+  DataSemHandle = osSemaphoreNew(2, 0, &DataSem_attributes);
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
   /* add semaphores, ... */
@@ -626,31 +620,35 @@ void vTask_ReadData(void *argument)
   /* Infinite loop */
 	for(;;)
 	{
-	  tick = tick + dhtInterval;
-		printf("vTask_ReadData IN: %ld\r\n", osKernelGetTickCount());
-
-		dhtStatus = DHT11_GetData(&dht);
-
-		switch(dhtStatus)
+		if (osSemaphoreGetCount(DataSemHandle) == 0)
 		{
-			case DHT11_ERR_CHECKSUM:
-				printf("DHT11 ERROR CHECKSUM\r\n");
-				break;
-			case DHT11_ERR_RESPONSE:
-				printf("DHT11 ERROR RESPONSE\r\n");
-				break;
-			default:
-				printf("Get Data from DHT11 successfully\r\n");
-				break;
-		}
+			tick = tick + dhtInterval;
+			printf("vTask_ReadData IN: %ld\r\n", osKernelGetTickCount());
 
-		printf("vTask_ReadData OUT: %ld\r\n\n", osKernelGetTickCount());
+			dhtStatus = DHT11_GetData(&dht);
 
-		if (dhtStatus == DHT11_OK && osSemaphoreGetCount(DisplaySemHandle) == 0)
-		{
-			osSemaphoreRelease(DisplaySemHandle);
+			switch(dhtStatus)
+			{
+				case DHT11_ERR_CHECKSUM:
+					printf("DHT11 ERROR CHECKSUM\r\n");
+					break;
+				case DHT11_ERR_RESPONSE:
+					printf("DHT11 ERROR RESPONSE\r\n");
+					break;
+				default:
+					printf("Get Data from DHT11 successfully\r\n");
+					break;
+			}
+
+			printf("vTask_ReadData OUT: %ld\r\n\n", osKernelGetTickCount());
+
+			if (dhtStatus == DHT11_OK && osSemaphoreGetCount(DataSemHandle) == 0)
+			{
+				osSemaphoreRelease(DataSemHandle);
+				osSemaphoreRelease(DataSemHandle);
+			}
+			osDelayUntil(tick);
 		}
-		osDelayUntil(tick);
 	}
   /* USER CODE END vTask_ReadData */
 }
@@ -669,11 +667,12 @@ void vTask_Display(void *argument)
   /* Infinite loop */
 	for(;;)
 	{
-		osSemaphoreAcquire(DisplaySemHandle, osWaitForever);
+		osSemaphoreAcquire(DataSemHandle, osWaitForever);
+
 		printf("vTask_Display IN: %ld\r\n", osKernelGetTickCount());
 
-		sprintf(temp, "Temperature: %.2f", dht.Temp);
-		sprintf(humi, "Humidity: %.2f", dht.Humi);
+		sprintf(temp, "Temp: %.2f", dht.Temp);
+		sprintf(humi, "Humi: %.2f", dht.Humi);
 		LCD_Clear(&lcd);
 		switch (DisplayMode)
 		{
@@ -694,10 +693,7 @@ void vTask_Display(void *argument)
 		}
 		printf("vTask_Display OUT: %ld\r\n\n", osKernelGetTickCount());
 
-		if (dhtStatus == DHT11_OK && osSemaphoreGetCount(SendToComSemHandle) == 0)
-		{
-			osSemaphoreRelease(SendToComSemHandle);
-		}
+		osDelay(10);
 	}
   /* USER CODE END vTask_Display */
 }
@@ -715,7 +711,7 @@ void vTask_SendToCom(void *argument)
   /* Infinite loop */
 	for(;;)
 	{
-		osSemaphoreAcquire(SendToComSemHandle, osWaitForever);
+		osSemaphoreAcquire(DataSemHandle, osWaitForever);
 		switch (DisplayMode)
 		{
 			case DISPLAY_HUMI:
@@ -748,7 +744,6 @@ void vTask_ControlRgb(void *argument)
 	for(;;)
 	{
 		tick = tick + rgbInterval;
-		count++;
 
 		printf("vTask_ControlRgb IN: %ld\r\n", osKernelGetTickCount());
 
@@ -756,9 +751,13 @@ void vTask_ControlRgb(void *argument)
 
 		printf("vTask_ControlRgb OUT: %ld\r\n\n", osKernelGetTickCount());
 
-		osThreadSetPriority(ControlRgbHandle, osPriorityBelowNormal);
-//		osDelayUntil(tick);
-		osDelay(rgbInterval);
+		if (osThreadGetPriority(ControlRgbHandle) != osPriorityBelowNormal)
+		{
+			osThreadSetPriority(ControlRgbHandle, osPriorityBelowNormal);
+		}
+
+		osDelayUntil(tick);
+//		osDelay(rgbInterval);
 	}
   /* USER CODE END vTask_ControlRgb */
 }
@@ -803,6 +802,7 @@ void vTask_HandleInterrupt(void *argument)
 							case 2: blue = (uint8_t)atoi((const char*)buffer); break;
 						}
 					}
+
 					printf("Change RGB color:\r\n");
 					printf("RED = %d\r\nGREEN = %d\r\nBLUE = %d\r\n\n", red, green, blue);
 
@@ -842,8 +842,18 @@ void vTask_HandleInterrupt(void *argument)
 					numPart = rxData + 4;
 					strncpy(buffer, (const char*)numPart, 4);
 					buffer[4] = '\0'; // Null-terminate the buffer
+					uint32_t old_dhtInterval = dhtInterval;
 					dhtInterval = (uint32_t)atoi((const char*)buffer);
-					printf("Change DHT11 Period to %d\r\n\n", dhtInterval);
+
+					if (dhtInterval > 1500 && dhtInterval < 10000)
+					{
+						printf("Change DHT11 Period from %d to %d\r\n\n", old_dhtInterval, dhtInterval);
+					}
+					else
+					{
+						printf("The new Period is invalid! DHT11 Period stays the same: %d\r\n\n", old_dhtInterval);
+						dhtInterval = old_dhtInterval;
+					}
 				}
 				else
 				{

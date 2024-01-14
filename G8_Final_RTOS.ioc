@@ -2,10 +2,11 @@
 CAD.formats=
 CAD.pinconfig=
 CAD.provider=
-FREERTOS.BinarySemaphores01=IRQSem,Dynamic,NULL;DisplaySem,Dynamic,NULL;SendToComSem,Dynamic,NULL
+FREERTOS.BinarySemaphores01=IRQSem,Dynamic,NULL
+FREERTOS.CountingSemaphores01=DataSem,2,Dynamic,NULL
 FREERTOS.FootprintOK=false
 FREERTOS.HEAP_NUMBER=4
-FREERTOS.IPParameters=Tasks01,FootprintOK,configTOTAL_HEAP_SIZE,configUSE_NEWLIB_REENTRANT,BinarySemaphores01,HEAP_NUMBER
+FREERTOS.IPParameters=Tasks01,FootprintOK,configTOTAL_HEAP_SIZE,configUSE_NEWLIB_REENTRANT,BinarySemaphores01,HEAP_NUMBER,CountingSemaphores01
 FREERTOS.Tasks01=defaultTask,8,128,StartDefaultTask,Default,NULL,Dynamic,NULL,NULL;ReadData,32,128,vTask_ReadData,Default,NULL,Dynamic,NULL,NULL;Display,25,1024,vTask_Display,Default,NULL,Dynamic,NULL,NULL;SendToCom,24,256,vTask_SendToCom,Default,NULL,Dynamic,NULL,NULL;ControlRgb,16,200,vTask_ControlRgb,Default,NULL,Dynamic,NULL,NULL;HandleInterrupt,40,256,vTask_HandleInterrupt,Default,NULL,Dynamic,NULL,NULL
 FREERTOS.configTOTAL_HEAP_SIZE=8952
 FREERTOS.configUSE_NEWLIB_REENTRANT=0
