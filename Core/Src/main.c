@@ -59,7 +59,7 @@ typedef struct
 	TaskIndex_t TaskIndex;
 	float buffDHT[2];
 	uint8_t buffRGB[3];
-} LcdQueue_t;
+} DataQueue_t;
 
 /* USER CODE END PTD */
 
@@ -121,17 +121,17 @@ const osThreadAttr_t HandleInterrupt_attributes = {
   .stack_size = 256 * 4,
   .priority = (osPriority_t) osPriorityHigh,
 };
-/* Definitions for QueueReceive */
-osThreadId_t QueueReceiveHandle;
-const osThreadAttr_t QueueReceive_attributes = {
-  .name = "QueueReceive",
+/* Definitions for Display */
+osThreadId_t DisplayHandle;
+const osThreadAttr_t Display_attributes = {
+  .name = "Display",
   .stack_size = 1024 * 4,
   .priority = (osPriority_t) osPriorityNormal1,
 };
-/* Definitions for Lcd */
-osMessageQueueId_t LcdHandle;
-const osMessageQueueAttr_t Lcd_attributes = {
-  .name = "Lcd"
+/* Definitions for DataToCom */
+osMessageQueueId_t DataToComHandle;
+const osMessageQueueAttr_t DataToCom_attributes = {
+  .name = "DataToCom"
 };
 /* Definitions for IRQSem */
 osSemaphoreId_t IRQSemHandle;
@@ -162,7 +162,7 @@ DisplayMode_t DisplayMode = DISPLAY_TEMP_HUMI;
 
 osStatus_t stat;
 
-LcdQueue_t LcdQueue;
+DataQueue_t DataQueue;
 
 /* USER CODE END PV */
 
@@ -178,7 +178,7 @@ void vTask_ReadData(void *argument);
 void vTask_SendToCom(void *argument);
 void vTask_ControlRgb(void *argument);
 void vTask_HandleInterrupt(void *argument);
-void vTask_QueueReceive(void *argument);
+void vTask_Display(void *argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -289,8 +289,8 @@ int main(void)
   /* USER CODE END RTOS_TIMERS */
 
   /* Create the queue(s) */
-  /* creation of Lcd */
-  LcdHandle = osMessageQueueNew (10, sizeof(uint32_t), &Lcd_attributes);
+  /* creation of DataToCom */
+  DataToComHandle = osMessageQueueNew (10, sizeof(uint32_t), &DataToCom_attributes);
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
@@ -312,8 +312,8 @@ int main(void)
   /* creation of HandleInterrupt */
   HandleInterruptHandle = osThreadNew(vTask_HandleInterrupt, NULL, &HandleInterrupt_attributes);
 
-  /* creation of QueueReceive */
-  QueueReceiveHandle = osThreadNew(vTask_QueueReceive, NULL, &QueueReceive_attributes);
+  /* creation of Display */
+  DisplayHandle = osThreadNew(vTask_Display, NULL, &Display_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -600,36 +600,24 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 static void DisplayRgb(uint8_t r, uint8_t g, uint8_t b)
 {
-	char led[20] = "                    ";
-	LCD_SetCursor(&lcd, 0, 1);
-	LCD_WriteString(&lcd, led);
-
-	sprintf(led, "RGB: %d %d %d", r, g, b);
-	LCD_SetCursor(&lcd, 0, 1);
-	LCD_WriteString(&lcd, led);
+	printf("RED = %d\r\nGREEN = %d\r\nBLUE = %d\r\n\n", r, g, b);
 }
 
 static void DisplayDht(float temperature, float humidity)
 {
-	char data[20]="                    ";
-
-	LCD_SetCursor(&lcd, 0, 0);
-	LCD_WriteString(&lcd, data);
-
 	switch (DisplayMode)
 	{
 		case DISPLAY_TEMP:
-			sprintf(data, "T: %.1f", temperature);
+			printf("Temperature: %.2f\r\n\n", temperature);
 			break;
 		case DISPLAY_HUMI:
-			sprintf(data, "H: %.1f", humidity);
+			printf("Humidity: %.2f\r\n\n", humidity);
 			break;
 		default:
-			sprintf(data, "T: %.1f H: %.1f", temperature, humidity);
+			printf("Temperature: %.2f\r\n", temperature);
+			printf("Humidity: %.2f\r\n\n", humidity);
 			break;
 	}
-	LCD_SetCursor(&lcd, 0, 0);
-	LCD_WriteString(&lcd, data);
 }
 /* USER CODE END 4 */
 
@@ -688,17 +676,13 @@ void vTask_ReadData(void *argument)
 
 			printf("vTask_ReadData OUT: %ld\r\n\n", osKernelGetTickCount());
 
-			if (dhtStatus == DHT11_OK && osSemaphoreGetCount(DataSemHandle) == 0)
-			{
-				osSemaphoreRelease(DataSemHandle);
-			}
-
 			if (dhtStatus == DHT11_OK)
 			{
-				LcdQueue.TaskIndex = TASK_READ_DATA;
-				LcdQueue.buffDHT[0] = dht.Temp;
-				LcdQueue.buffDHT[1] = dht.Humi;
-				osMessageQueuePut(LcdHandle, &LcdQueue, 0, 0);
+				osSemaphoreRelease(DataSemHandle);
+				DataQueue.TaskIndex = TASK_READ_DATA;
+				DataQueue.buffDHT[0] = dht.Temp;
+				DataQueue.buffDHT[1] = dht.Humi;
+				osMessageQueuePut(DataToComHandle, &DataQueue, 0, 0);
 			}
 
 			osDelayUntil(tick);
@@ -720,18 +704,16 @@ void vTask_SendToCom(void *argument)
   /* Infinite loop */
 	for(;;)
 	{
-		osSemaphoreAcquire(DataSemHandle, osWaitForever);
-		switch (DisplayMode)
+		osMessageQueueGet(DataToComHandle, &DataQueue, NULL, osWaitForever);
+		switch(DataQueue.TaskIndex)
 		{
-			case DISPLAY_HUMI:
-				printf("Humidity: %.2f\r\n\n", dht.Humi);
+			case TASK_CONTROL_RGB:
+				DisplayRgb(DataQueue.buffRGB[0], DataQueue.buffRGB[1], DataQueue.buffRGB[2]);
 				break;
-			case DISPLAY_TEMP:
-				printf("Temperature: %.2f\r\n\n", dht.Temp);
+			case TASK_READ_DATA:
+				DisplayDht(DataQueue.buffDHT[0], DataQueue.buffDHT[1]);
 				break;
-			case DISPLAY_TEMP_HUMI:
-				printf("Temperature: %.2f\r\n", dht.Temp);
-				printf("Humidity: %.2f\r\n\n", dht.Humi);
+			default:
 				break;
 		}
 	}
@@ -765,13 +747,13 @@ void vTask_ControlRgb(void *argument)
 			osThreadSetPriority(ControlRgbHandle, osPriorityBelowNormal);
 		}
 
-		if (osMessageQueueGetSpace(LcdHandle) != 0)
+		if (osMessageQueueGetSpace(DataToComHandle) != 0)
 		{
-			LcdQueue.TaskIndex = TASK_CONTROL_RGB;
-			LcdQueue.buffRGB[0] = rgb.Data.red_value;
-			LcdQueue.buffRGB[1] = rgb.Data.green_value;
-			LcdQueue.buffRGB[2] = rgb.Data.blue_value;
-			osMessageQueuePut(LcdHandle, &LcdQueue, 0, 0);
+			DataQueue.TaskIndex = TASK_CONTROL_RGB;
+			DataQueue.buffRGB[0] = rgb.Data.red_value;
+			DataQueue.buffRGB[1] = rgb.Data.green_value;
+			DataQueue.buffRGB[2] = rgb.Data.blue_value;
+			osMessageQueuePut(DataToComHandle, &DataQueue, 0, 0);
 		}
 
 		osDelayUntil(tick);
@@ -887,31 +869,52 @@ void vTask_HandleInterrupt(void *argument)
   /* USER CODE END vTask_HandleInterrupt */
 }
 
-/* USER CODE BEGIN Header_vTask_QueueReceive */
+/* USER CODE BEGIN Header_vTask_Display */
 /**
-* @brief Function implementing the QueueReceive thread.
+* @brief Function implementing the Display thread.
 * @param argument: Not used
 * @retval None
 */
-/* USER CODE END Header_vTask_QueueReceive */
-void vTask_QueueReceive(void *argument)
+/* USER CODE END Header_vTask_Display */
+void vTask_Display(void *argument)
 {
-  /* USER CODE BEGIN vTask_QueueReceive */
+  /* USER CODE BEGIN vTask_Display */
+	char temp[15], humi[15];
   /* Infinite loop */
   for(;;)
   {
-    osMessageQueueGet(LcdHandle, &LcdQueue, NULL, osWaitForever);
-    switch(LcdQueue.TaskIndex)
-    {
-    	case TASK_READ_DATA:
-    		DisplayDht(LcdQueue.buffDHT[0], LcdQueue.buffDHT[1]);
-    		break;
-    	case TASK_CONTROL_RGB:
-    		DisplayRgb(LcdQueue.buffRGB[0], LcdQueue.buffRGB[1], LcdQueue.buffRGB[2]);
-    		break;
-    }
+    osSemaphoreAcquire(DataSemHandle, osWaitForever);
+	printf("vTask_Display IN: %ld\r\n", osKernelGetTickCount());
+
+  	if (dhtStatus == DHT11_OK)
+  	{
+  	  	sprintf(temp, "Temp: %.2f", dht.Temp);
+  	  	sprintf(humi, "Humi: %.2f", dht.Humi);
+
+  	  	LCD_Clear(&lcd);
+
+  	  	switch (DisplayMode)
+  	  	{
+  	  		case DISPLAY_TEMP:
+  	  			LCD_SetCursor(&lcd, 0, 0);
+  	  			LCD_WriteString(&lcd, temp);
+  	  			break;
+  	  		case DISPLAY_HUMI:
+  	  			LCD_SetCursor(&lcd, 0, 0);
+  	  			LCD_WriteString(&lcd, humi);
+  	  			break;
+  	  		default:
+  	  			LCD_SetCursor(&lcd, 0, 0);
+  	  			LCD_WriteString(&lcd, temp);
+  	  			LCD_SetCursor(&lcd, 0, 1);
+  	  			LCD_WriteString(&lcd, humi);
+  	  			break;
+  	  	}
+  	}
+
+  	printf("vTask_Display OUT: %ld\r\n\n", osKernelGetTickCount());
   }
-  /* USER CODE END vTask_QueueReceive */
+  /* USER CODE END vTask_Display */
 }
 
 /**
