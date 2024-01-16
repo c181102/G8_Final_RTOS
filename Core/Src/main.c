@@ -600,7 +600,7 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 static void DisplayRgb(uint8_t r, uint8_t g, uint8_t b)
 {
-	printf("RED = %d\r\nGREEN = %d\r\nBLUE = %d\r\n\n", r, g, b);
+	printf("RED = %d - GREEN = %d - BLUE = %d\r\n", r, g, b);
 }
 
 static void DisplayDht(float temperature, float humidity)
@@ -608,14 +608,14 @@ static void DisplayDht(float temperature, float humidity)
 	switch (DisplayMode)
 	{
 		case DISPLAY_TEMP:
-			printf("Temperature: %.2f\r\n\n", temperature);
+			printf("Temperature: %.2f\r\n", temperature);
 			break;
 		case DISPLAY_HUMI:
-			printf("Humidity: %.2f\r\n\n", humidity);
+			printf("Humidity: %.2f\r\n", humidity);
 			break;
 		default:
 			printf("Temperature: %.2f\r\n", temperature);
-			printf("Humidity: %.2f\r\n\n", humidity);
+			printf("Humidity: %.2f\r\n", humidity);
 			break;
 	}
 }
@@ -705,6 +705,8 @@ void vTask_SendToCom(void *argument)
 	for(;;)
 	{
 		osMessageQueueGet(DataToComHandle, &DataQueue, NULL, osWaitForever);
+		printf("vTask_SendToCom IN: %ld\r\n", osKernelGetTickCount());
+
 		switch(DataQueue.TaskIndex)
 		{
 			case TASK_CONTROL_RGB:
@@ -716,6 +718,8 @@ void vTask_SendToCom(void *argument)
 			default:
 				break;
 		}
+
+		printf("vTask_SendToCom OUT: %ld\r\n\n", osKernelGetTickCount());
 	}
   /* USER CODE END vTask_SendToCom */
 }
