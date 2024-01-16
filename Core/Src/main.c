@@ -847,7 +847,7 @@ void vTask_HandleInterrupt(void *argument)
 					uint32_t old_dhtInterval = dhtInterval;
 					dhtInterval = (uint32_t)atoi((const char*)buffer);
 
-					if (dhtInterval > 1500 && dhtInterval < 10000)
+					if (dhtInterval >= 1500 && dhtInterval < 10000)
 					{
 						printf("Change DHT11 Period from %d to %d\r\n\n", old_dhtInterval, dhtInterval);
 					}
